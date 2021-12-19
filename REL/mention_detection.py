@@ -1,8 +1,10 @@
 from flair.data import Sentence
 from flair.models import SequenceTagger
 from segtok.segmenter import split_single
+from tqdm import tqdm
 
 from REL.mention_detection_base import MentionDetectionBase
+from REL.profiler import profile
 
 """
 Class responsible for mention detection.
@@ -17,6 +19,7 @@ class MentionDetection(MentionDetectionBase):
 
         super().__init__(base_url, wiki_version)
 
+    @profile
     def format_spans(self, dataset):
         """
         Responsible for formatting given spans into dataset for the ED step. More specifically,
@@ -62,6 +65,7 @@ class MentionDetection(MentionDetectionBase):
             results[doc] = results_doc
         return results, total_ment
 
+    @profile
     def split_text(self, dataset, is_flair=False):
         """
         Splits text into sentences with optional spans (format is a requirement for GERBIL usage).
@@ -104,10 +108,86 @@ class MentionDetection(MentionDetectionBase):
             splits.append(splits[-1] + i)
         return res, processed_sentences, splits
 
+    @profile
+    def _tagger_predict(self, tagger, processed_sentences):
+        tagger.predict(processed_sentences)
+
+        return processed_sentences
+
+    @profile
+    def process_and_predict_flair(self, dataset, tagger):
+        # Verify if Flair, else ngram or custom.
+        is_flair = isinstance(tagger, SequenceTagger)
+        dataset_sentences_raw, processed_sentences, splits = self.split_text(
+            dataset, is_flair
+        )
+
+        processed_sentences = self._tagger_predict(tagger, processed_sentences)
+
+        return dataset, dataset_sentences_raw, processed_sentences, splits
+
+    def process_predictions_flair(
+        self, dataset, dataset_sentences_raw, processed_sentences, splits
+    ):
+        results = {}
+        total_ment = 0
+        for i, doc in enumerate(tqdm(dataset_sentences_raw)):
+            contents = dataset_sentences_raw[doc]
+            raw_text = dataset[doc][0]
+            sentences_doc = [v[0] for v in contents.values()]
+            sentences = processed_sentences[splits[i] : splits[i + 1]]
+            result_doc = []
+            cum_sent_length = 0
+            offset = 0
+            for (idx_sent, (sentence, ground_truth_sentence)), snt in zip(
+                contents.items(), sentences
+            ):
+
+                # Only include offset if using Flair.
+                offset = raw_text.find(sentence, cum_sent_length)
+
+                for entity in snt.get_spans("ner"):
+                    text, start_pos, end_pos, conf, tag = (
+                        entity.text,
+                        entity.start_pos,
+                        entity.end_pos,
+                        entity.score,
+                        entity.tag,
+                    )
+                    total_ment += 1
+                    m = self.preprocess_mention(text)
+                    cands = self.get_candidates(m)
+                    if len(cands) == 0:
+                        continue
+
+                    # Re-create ngram as 'text' is at times changed by Flair (e.g. double spaces are removed).
+                    ngram = sentence[start_pos:end_pos]
+                    left_ctxt, right_ctxt = self.get_ctxt(
+                        start_pos, end_pos, idx_sent, sentence, sentences_doc
+                    )
+                    res = {
+                        "mention": m,
+                        "context": (left_ctxt, right_ctxt),
+                        "candidates": cands,
+                        "gold": ["NONE"],
+                        "pos": start_pos + offset,
+                        "sent_idx": idx_sent,
+                        "ngram": ngram,
+                        "end_pos": end_pos + offset,
+                        "sentence": sentence,
+                        "conf_md": conf,
+                        "tag": tag,
+                    }
+                    result_doc.append(res)
+                cum_sent_length += len(sentence) + (offset - cum_sent_length)
+            results[doc] = result_doc
+        return results, total_ment
+
     def find_mentions(self, dataset, tagger=None):
         """
         Responsible for finding mentions given a set of documents in a batch-wise manner. More specifically,
         it returns the mention, its left/right context and a set of candidates.
+
         :return: Dictionary with mentions per document.
         """
         if tagger is None:
@@ -121,9 +201,11 @@ class MentionDetection(MentionDetectionBase):
         )
         results = {}
         total_ment = 0
+
         if is_flair:
-            tagger.predict(processed_sentences)
-        for i, doc in enumerate(dataset_sentences_raw):
+            processed_sentences = self._tagger_predict(tagger, processed_sentences)
+
+        for i, doc in enumerate(tqdm(dataset_sentences_raw)):
             contents = dataset_sentences_raw[doc]
             raw_text = dataset[doc][0]
             sentences_doc = [v[0] for v in contents.values()]
@@ -156,6 +238,7 @@ class MentionDetection(MentionDetectionBase):
                     cands = self.get_candidates(m)
                     if len(cands) == 0:
                         continue
+
                     # Re-create ngram as 'text' is at times changed by Flair (e.g. double spaces are removed).
                     ngram = sentence[start_pos:end_pos]
                     left_ctxt, right_ctxt = self.get_ctxt(

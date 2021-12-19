@@ -4,6 +4,8 @@ import re
 from REL.db.generic import GenericLookup
 from REL.utils import modify_uppercase_phrase, split_in_words
 
+from REL.profiler import Profiler, profile
+
 
 class MentionDetectionBase:
     def __init__(self, base_url, wiki_version):
@@ -11,6 +13,9 @@ class MentionDetectionBase:
             "entity_word_embedding", os.path.join(base_url, wiki_version, "generated")
         )
 
+        self.profiler = Profiler()
+
+    @profile
     def get_ctxt(self, start, end, idx_sent, sentence, sentences_doc):
         """
         Retrieves context surrounding a given mention up to 100 words from both sides.
@@ -39,6 +44,7 @@ class MentionDetectionBase:
 
         return left_ctxt, right_ctxt
 
+    @profile
     def get_candidates(self, mention):
         """
         Retrieves a maximum of 100 candidates from the sqlite3 database for a given mention.
@@ -53,6 +59,7 @@ class MentionDetectionBase:
         else:
             return []
 
+    @profile
     def preprocess_mention(self, m):
         """
         Responsible for preprocessing a mention and making sure we find a set of matching candidates
