@@ -122,7 +122,7 @@ class MentionDetection(MentionDetectionBase):
         results = {}
         total_ment = 0
         if is_flair:
-            tagger.predict(processed_sentences)
+            tagger.predict(processed_sentences, mini_batch_size=16)
         for i, doc in enumerate(dataset_sentences_raw):
             contents = dataset_sentences_raw[doc]
             raw_text = dataset[doc][0]
@@ -177,4 +177,14 @@ class MentionDetection(MentionDetectionBase):
                     result_doc.append(res)
                 cum_sent_length += len(sentence) + (offset - cum_sent_length)
             results[doc] = result_doc
+
+        splits.clear()
+        del splits
+
+        processed_sentences.clear()
+        del processed_sentences
+
+        dataset_sentences_raw.clear()
+        del dataset_sentences_raw
+
         return results, total_ment
