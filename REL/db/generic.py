@@ -29,11 +29,11 @@ class GenericLookup(DB):
             "entity": {"cnt": 0, "sum": zeros(d_emb)},
         }
 
-        path_db = os.path.join(save_dir, f"{name}.db")
+        self.path_db = os.path.join(save_dir, f"{name}.db")
 
         self.d_emb = d_emb
         self.name = name
-        self.db = self.initialize_db(path_db, table_name, columns)
+        self.initialize_db(table_name, columns)
         self.table_name = table_name
         self.columns = columns
 
