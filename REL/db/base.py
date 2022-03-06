@@ -30,29 +30,26 @@ class DB:
                     f.write(chunk)
         return local_filename
 
-    def initialize_db(self, fname, table_name, columns):
+    def initialize_db(self, table_name, columns):
         """
         Args:
-            fname (str): location of the database.
-        Returns:
-            db (sqlite3.Connection): a SQLite3 database with an embeddings table.
+            table_name (str)
+            table_name (str)
         """
         # open database in autocommit mode by setting isolation_level to None.
-        db = sqlite3.connect(fname, isolation_level=None)
-        c = db.cursor()
-
+        c = sqlite3.connect(self.path_db, isolation_level=None)
         q = "create table if not exists {}(word text primary key, {})".format(
             table_name, ", ".join(["{} {}".format(k, v) for k, v in columns.items()])
         )
         c.execute(q)
-        return db
+        c.close()
 
     def create_index(self, columns=None, table_name=None):
         # if columns:
         #     self.columns = columns
         #     self.table_name = table_name
         #
-        c = self.db.cursor()
+
         # for i, (k, v) in enumerate(self.columns.items()):
         #     createSecondaryIndex = "CREATE INDEX if not exists idx_{} ON {}({})".format(
         #         k, self.table_name, k
@@ -63,14 +60,17 @@ class DB:
             "lower", "wiki", "lower"
         )
         print(createSecondaryIndex)
+        c = sqlite3.connect(self.path_db, isolation_level=None)
         c.execute(createSecondaryIndex)
+        c.close()
 
     def clear(self):
         """
         Deletes all embeddings from the database.
         """
-        c = self.db.cursor()
-        c.execute("delete from {}".format(self.table_name))
+        conn = sqlite3.connect(self.path_db, isolation_level=None)
+        conn.execute("delete from {}".format(self.table_name))
+        conn.close()
 
     def insert_batch_emb(self, batch):
         """
@@ -86,7 +86,7 @@ class DB:
                 ('!', [3, 4, 5]),
             ])
         """
-        c = self.db.cursor()
+        c = sqlite3.connect(self.path_db, isolation_level=None)
         binarized = [(word, array("f", emb).tobytes()) for word, emb in batch]
         try:
             # Adding the transaction statement reduces total time from approx 37h to 1.3h.
@@ -98,6 +98,8 @@ class DB:
         except Exception as e:
             print("insert failed\n{}".format([w for w, e in batch]))
             raise e
+        finally:
+            c.close()
 
     def insert_batch_wiki(self, batch):
         """
@@ -113,7 +115,7 @@ class DB:
                 ('!', [3, 4, 5]),
             ])
         """
-        c = self.db.cursor()
+        c = sqlite3.connect(self.path_db, isolation_level=None)
         binarized = [
             (word, self.dict_to_binary(p_e_m), lower, occ)
             for word, p_e_m, lower, occ in batch
@@ -128,6 +130,8 @@ class DB:
         except Exception as e:
             print("insert failed\n{}".format([w for w, e in batch]))
             raise e
+        finally:
+            c.close()
 
     def dict_to_binary(self, the_dict):
         # credit: https://stackoverflow.com/questions/19232011/convert-dictionary-to-bytes-and-back-again-python
@@ -148,7 +152,7 @@ class DB:
             embeddings for ``w``, if it exists.
             ``None``, otherwise.
         """
-        c = self.db.cursor()
+        c = sqlite3.connect(self.path_db, isolation_level=None)
 
         res = []
         c.execute("BEGIN TRANSACTION;")
@@ -160,6 +164,8 @@ class DB:
             res.append(e if e is None else array("f", e[0]).tolist())
         c.execute("COMMIT;")
 
+        c.close()
+
         return res
 
     def lookup_wik(self, w, table_name, column):
@@ -170,7 +176,7 @@ class DB:
             embeddings for ``w``, if it exists.
             ``None``, otherwise.
         """
-        c = self.db.cursor()
+        c = sqlite3.connect(self.path_db, isolation_level=None)
         # q = c.execute('select emb from embeddings where word = :word', {'word': w}).fetchone()
         # return array('f', q[0]).tolist() if q else None
         if column == "lower":
@@ -186,6 +192,8 @@ class DB:
         res = (
             e if e is None else self.binary_to_dict(e[0]) if column == "p_e_m" else e[0]
         )
+
+        c.close()
 
         return res
 
